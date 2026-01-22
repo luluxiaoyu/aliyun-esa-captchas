@@ -1,9 +1,10 @@
+// 统一响应格式
 function responseJSON(code, msg, data = null, status = 200) {
   return new Response(JSON.stringify({ code, msg, data }), {
     status: status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": "*", // 允许跨域调试
       "Access-Control-Allow-Headers": "*"
     },
   });
@@ -20,6 +21,18 @@ const ERROR_MAP = {
   "F020": "验签票据与场景ID或用户不匹配",
   "F021": "验证的SceneId和验签的SceneId不一致"
 };
+
+function getSafeSecret(env) {
+  try {
+    if (typeof SERVER_SECRET !== 'undefined') {
+      return SERVER_SECRET;
+    }
+  } catch (e) {}
+  if (env && env.SERVER_SECRET) {
+    return env.SERVER_SECRET;
+  }
+  return "default_secret";
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -39,12 +52,16 @@ export default {
     // 路由匹配
     if (url.pathname === "/api/captcha" && request.method === "GET") {
       
-      // --- 内部鉴权 ---
+      // --- 内部鉴权 (检查 Secret) ---
       const inputSecret = url.searchParams.get("secret");
-      const SERVER_SECRET = process.env.SERVER_SECRET || "secret"
+      
+      // 使用兼容函数获取密钥
+      const CONFIG_SECRET = getSafeSecret(env);
 
-      if (inputSecret !== SERVER_SECRET) {
-        return responseJSON(403, "接口鉴权失败: Secret 错误或丢失");
+      if (inputSecret !== CONFIG_SECRET) {
+        return responseJSON(403, "接口鉴权失败: Secret 错误或丢失", {
+           tip: "请检查后端请求是否携带了正确的 secret 参数，或 ESA 环境变量 SERVER_SECRET 是否配置正确"
+        });
       }
 
       // --- 验证码结果检查 ---
@@ -52,7 +69,7 @@ export default {
 
       if (!verifyCode) {
         return responseJSON(500, "配置错误: 未检测到 ESA 验证结果 (Missing Header)", {
-             tip: "请检查 ESA 控制台规则"
+             tip: "请检查 ESA 控制台 WAF 规则：URI是否正确? 方法是否为GET? 是否启用了Header注入?"
         });
       }
 
@@ -63,7 +80,6 @@ export default {
           verify_code: "T001"
         });
       } else {
-        // 获取中文解释，如果没有对应的，就返回原始 Code
         const cnMsg = ERROR_MAP[verifyCode] || `未知错误码: ${verifyCode}`;
         
         return responseJSON(400, cnMsg, {
