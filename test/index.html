@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESA 验证码 Ticket 调试台 (动态配置版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        /* 禁用状态的灰度滤镜 */
+        .disabled-area { opacity: 0.5; pointer-events: none; filter: grayscale(1); transition: all 0.3s; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex items-center justify-center p-4">
+
+    <div class="max-w-3xl w-full bg-white rounded-2xl shadow-xl overflow-hidden animate-fade-in">
+        
+        <div class="bg-slate-800 p-6 text-white flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-flask"></i> ESA 验证调试台
+                </h1>
+                <p class="text-slate-400 mt-1 text-xs">Dynamic Config & Ticket Testing</p>
+            </div>
+            <button onclick="window.location.reload()" class="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-slate-300 transition">
+                <i class="fa-solid fa-rotate-right"></i> 重置页面
+            </button>
+        </div>
+
+        <div class="p-8 space-y-8">
+            
+            <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 relative">
+                <span class="absolute -top-3 left-4 bg-blue-100 text-blue-800 px-2 py-0.5 text-xs font-bold rounded uppercase tracking-wide">Configuration</span>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">身份标 (Prefix/Identity)</label>
+                        <input type="text" id="config-prefix" placeholder="例如: esa-xxxxxx" 
+                            class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">场景ID (SceneId)</label>
+                        <input type="text" id="config-scene" placeholder="例如: xxxxxxxx" 
+                            class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition">
+                    </div>
+                </div>
+
+                <div class="mt-4 flex justify-end">
+                    <button id="btn-init" onclick="initCaptchaEnvironment()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-bold shadow transition flex items-center gap-2">
+                        <i class="fa-solid fa-play"></i> 加载配置并初始化
+                    </button>
+                </div>
+            </div>
+
+            <div id="playground" class="space-y-8 disabled-area">
+                
+                <div class="relative pl-8 border-l-2 border-gray-200">
+                    <div class="absolute -left-2.5 top-0 w-5 h-5 rounded-full bg-gray-200 border-2 border-white"></div>
+                    <h2 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                        Step 1: 唤起验证 & 获取 Ticket
+                    </h2>
+                    
+                    <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                        <div id="captcha-element" class="mb-4 min-h-[40px]"></div>
+                        
+                        <button id="btn-login" class="px-5 py-2.5 bg-gray-800 hover:bg-gray-900 text-white rounded-lg transition-all flex items-center gap-2 text-sm font-medium">
+                            <i class="fa-solid fa-shield-halved"></i> 点击进行验证
+                        </button>
+
+                        <div id="step1-result" class="hidden mt-4">
+                            <label class="block text-xs font-bold text-green-600 uppercase mb-1">Ticket (Validity: 60s)</label>
+                            <textarea id="ticket-output" readonly onclick="this.select()" class="w-full h-20 bg-green-50 border border-green-200 rounded text-xs font-mono p-2 text-gray-600 focus:outline-none resize-none"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative pl-8 border-l-2 border-gray-200">
+                    <div class="absolute -left-2.5 top-0 w-5 h-5 rounded-full bg-gray-200 border-2 border-white"></div>
+                    <h2 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                        Step 2: 模拟后端验签
+                    </h2>
+                    
+                    <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                        <div class="flex gap-2 mb-2">
+                             <input type="text" id="verify-url" value="/api/verify_ticket" class="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-xs text-gray-600" placeholder="验签接口地址">
+                        </div>
+
+                        <button id="btn-verify" disabled onclick="verifyTicket()" class="w-full px-4 py-2 bg-gray-200 text-gray-400 rounded-lg cursor-not-allowed font-medium transition text-sm">
+                            发送 Ticket 到后端验证
+                        </button>
+                        
+                        <div id="final-result" class="hidden mt-4 p-4 rounded border text-sm"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 常量定义
+        const STORE_KEY_PREFIX = 'esa_debug_prefix';
+        const STORE_KEY_SCENE = 'esa_debug_scene';
+        const API_GET_TICKET = '/api/get_ticket';
+
+        let currentTicket = null;
+        let isInitialized = false;
+
+        // 页面加载时恢复配置
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedPrefix = localStorage.getItem(STORE_KEY_PREFIX);
+            const savedScene = localStorage.getItem(STORE_KEY_SCENE);
+            if (savedPrefix) document.getElementById('config-prefix').value = savedPrefix;
+            if (savedScene) document.getElementById('config-scene').value = savedScene;
+        });
+
+        // 初始化验证码环境
+        function initCaptchaEnvironment() {
+            if (isInitialized) {
+                if(confirm("修改配置需要刷新页面，是否刷新？")) {
+                    window.location.reload();
+                }
+                return;
+            }
+
+            const prefix = document.getElementById('config-prefix').value.trim();
+            const sceneId = document.getElementById('config-scene').value.trim();
+
+            if (!prefix || !sceneId) {
+                alert("请先填写 身份标 和 场景ID");
+                return;
+            }
+
+            // 保存到本地存储
+            localStorage.setItem(STORE_KEY_PREFIX, prefix);
+            localStorage.setItem(STORE_KEY_SCENE, sceneId);
+
+            // 1. 设置全局 Config (文档要求的 window.AliyunCaptchaConfig)
+            window.AliyunCaptchaConfig = {
+                region: "cn",
+                prefix: prefix,
+            };
+
+            // 2. 动态加载 SDK 脚本
+            const btnInit = document.getElementById('btn-init');
+            btnInit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SDK加载中...';
+            btnInit.disabled = true;
+
+            const script = document.createElement('script');
+            script.type = 'text/javascript';
+            script.src = 'https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js';
+            
+            script.onload = () => {
+                console.log("SDK Loaded");
+                btnInit.innerHTML = '<i class="fa-solid fa-check"></i> 已就绪';
+                btnInit.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                btnInit.classList.add('bg-green-600', 'hover:bg-green-700');
+                
+                // 3. 初始化验证码实例
+                setupCaptchaInstance(sceneId);
+                
+                // 4. 解锁操作区
+                document.getElementById('playground').classList.remove('disabled-area');
+                isInitialized = true;
+            };
+
+            script.onerror = () => {
+                alert("验证码 SDK 加载失败，请检查网络或身份标配置");
+                btnInit.innerHTML = '重试';
+                btnInit.disabled = false;
+            };
+
+            document.head.appendChild(script);
+        }
+
+        // 配置验证码实例
+        function setupCaptchaInstance(sceneId) {
+            window.initAliyunCaptcha({
+                SceneId: sceneId,
+                mode: "popup",
+                element: "#captcha-element",
+                button: "#btn-login",
+                slideStyle: { width: 320, height: 40 },
+                language: "cn",
+                
+                success: async function (captchaVerifyParam) {
+                    console.log("Verify Param:", captchaVerifyParam);
+                    const btn = document.getElementById('btn-login');
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-cog fa-spin"></i> 请求 ESA 签发 Ticket...';
+
+                    try {
+                        // 请求 ESA Edge Routine
+                        const response = await fetch(`${API_GET_TICKET}?captcha_verify_param=${encodeURIComponent(captchaVerifyParam)}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ source: "debug_tool" })
+                        });
+
+                        const result = await response.json();
+
+                        if (result.code === 0) {
+                            handleTicketSuccess(result.data.ticket);
+                        } else {
+                            alert("Ticket 获取失败: " + result.msg);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        alert("请求异常，请检查网络或控制台");
+                    } finally {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> 重新验证';
+                    }
+                },
+                fail: (err) => console.error(err)
+            });
+        }
+
+        function handleTicketSuccess(ticket) {
+            currentTicket = ticket;
+            // 显示 Ticket
+            document.getElementById('step1-result').classList.remove('hidden');
+            document.getElementById('ticket-output').value = ticket;
+            
+            // 激活下一步按钮
+            const btnVerify = document.getElementById('btn-verify');
+            btnVerify.disabled = false;
+            btnVerify.classList.remove('bg-gray-200', 'text-gray-400', 'cursor-not-allowed');
+            btnVerify.classList.add('bg-indigo-600', 'text-white', 'hover:bg-indigo-700', 'shadow');
+            
+            // 清除上次结果
+            document.getElementById('final-result').classList.add('hidden');
+        }
+
+        async function verifyTicket() {
+            if (!currentTicket) return;
+            
+            const verifyUrl = document.getElementById('verify-url').value;
+            const btn = document.getElementById('btn-verify');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 验证中...';
+            btn.disabled = true;
+
+            try {
+                // 尝试获取公网IP (仅用于测试显示，实际IP校验由后端/ESA完成)
+                let clientIp = "0.0.0.0";
+                try {
+                    const ipRes = await fetch('https://api.ipify.org?format=json');
+                    const ipJson = await ipRes.json();
+                    clientIp = ipJson.ip;
+                } catch(e) {}
+
+                const response = await fetch(verifyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ticket: currentTicket,
+                        client_ip: clientIp 
+                    })
+                });
+
+                const result = await response.json();
+                renderFinalResult(result, clientIp);
+
+            } catch (err) {
+                alert("请求失败");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        function renderFinalResult(result, ip) {
+            const div = document.getElementById('final-result');
+            div.classList.remove('hidden', 'bg-green-50', 'border-green-200', 'text-green-800', 'bg-red-50', 'border-red-200', 'text-red-800');
+            
+            if (result.code === 0) {
+                div.classList.add('bg-green-50', 'border-green-200', 'text-green-800');
+                div.innerHTML = `
+                    <div class="font-bold flex items-center gap-2 text-lg">
+                        <i class="fa-solid fa-circle-check"></i> 验证通过 (Valid)
+                    </div>
+                    <div class="mt-1 text-xs font-mono opacity-80">
+                        REQ_ID: ${result.data?.req_id || 'N/A'}<br>
+                        VERIFIED IP: ${result.data?.verified_ip || ip}
+                    </div>
+                `;
+            } else {
+                div.classList.add('bg-red-50', 'border-red-200', 'text-red-800');
+                div.innerHTML = `
+                    <div class="font-bold flex items-center gap-2 text-lg">
+                        <i class="fa-solid fa-circle-xmark"></i> 验证失败
+                    </div>
+                    <div class="mt-1 font-bold">${result.msg}</div>
+                    <div class="mt-1 text-xs font-mono bg-white/50 p-2 rounded">
+                        CODE: ${result.code}<br>
+                        ERROR_DATA: ${JSON.stringify(result.data)}
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
