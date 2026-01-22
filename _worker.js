@@ -65,7 +65,7 @@ export default {
     const EXPIRE = env.TICKET_EXPIRE ? parseInt(env.TICKET_EXPIRE) : 60;
 
     if (url.pathname === "/api/get_ticket" && request.method === "GET") {
-      const verifyCode = request.headers.get("X-Captcha-Verify-Code");
+      const verifyCode = request.headers.get("x-captcha-verify-code");
       
       if (verifyCode === "T001") {
         const clientIP = getClientIP(request);
