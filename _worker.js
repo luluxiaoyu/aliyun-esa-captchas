@@ -41,6 +41,7 @@ export default {
       
       // --- 内部鉴权 ---
       const inputSecret = url.searchParams.get("secret");
+      const SERVER_SECRET = process.env.SERVER_SECRET || "secret"
 
       if (inputSecret !== SERVER_SECRET) {
         return responseJSON(403, "接口鉴权失败: Secret 错误或丢失");
