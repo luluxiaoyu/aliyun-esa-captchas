@@ -44,7 +44,7 @@ export default {
       const inputSecret = url.searchParams.get("secret");
       
       // 使用兼容函数获取密钥
-      const SECRET = process.env.SECRET;
+      const SECRET = env.SECRET;
 
       if (inputSecret !== SECRET) {
         return responseJSON(403, "接口鉴权失败: Secret 错误或丢失", {
