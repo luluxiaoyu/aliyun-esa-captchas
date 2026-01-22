@@ -22,18 +22,6 @@ const ERROR_MAP = {
   "F021": "验证的SceneId和验签的SceneId不一致"
 };
 
-function getSafeSecret(env) {
-  try {
-    if (typeof SERVER_SECRET !== 'undefined') {
-      return SERVER_SECRET;
-    }
-  } catch (e) {}
-  if (env && env.SERVER_SECRET) {
-    return env.SERVER_SECRET;
-  }
-  return "default_secret";
-}
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -56,9 +44,9 @@ export default {
       const inputSecret = url.searchParams.get("secret");
       
       // 使用兼容函数获取密钥
-      const CONFIG_SECRET = getSafeSecret(env);
+      const SECRET = process.env.SECRET;
 
-      if (inputSecret !== CONFIG_SECRET) {
+      if (inputSecret !== SECRET) {
         return responseJSON(403, "接口鉴权失败: Secret 错误或丢失", {
            tip: "请检查后端请求是否携带了正确的 secret 参数，或 ESA 环境变量 SERVER_SECRET 是否配置正确"
         });
