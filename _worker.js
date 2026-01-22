@@ -48,7 +48,7 @@ export default {
 
       if (inputSecret !== SECRET) {
         return responseJSON(403, "接口鉴权失败: Secret 错误或丢失", {
-           tip: "请检查后端请求是否携带了正确的 secret 参数，或 ESA 环境变量 SERVER_SECRET 是否配置正确",env:env.SECRET
+           tip:env.SECRET
         });
       }
 
