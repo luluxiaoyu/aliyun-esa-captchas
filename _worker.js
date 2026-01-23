@@ -1,3 +1,5 @@
+const SECRET = "secret";
+
 // 统一响应格式
 function responseJSON(code, msg, data = null, status = 200) {
   return new Response(JSON.stringify({ code, msg, data }), {
@@ -43,13 +45,9 @@ export default {
       // --- 内部鉴权 (检查 Secret) ---
       const inputSecret = url.searchParams.get("secret");
       
-      // 使用兼容函数获取密钥
-      const SECRET = env.SECRET;
 
       if (inputSecret !== SECRET) {
-        return responseJSON(403, "接口鉴权失败: Secret 错误或丢失", {
-           tip:env.SECRET
-        });
+        return responseJSON(403, "接口鉴权失败: Secret 错误或丢失");
       }
 
       // --- 验证码结果检查 ---
