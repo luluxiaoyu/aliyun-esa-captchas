@@ -1,85 +1,110 @@
 /**
- * ESA Edge Routine - 验证码验签微服务
+ * ESA Edge Routine - 验证码验签 (单文件/硬编码版)
  */
 
-const SERVER_SECRET = "secret"; 
+// ★★★★★ 配置区域 ★★★★★
+const SERVER_SECRET = "your_password_here";  // 你的接口密钥
+const ESA_DOMAIN = "test.example.com";       // 你的域名 (不要带 https://)
+// ★★★★★★★★★★★★★★★★★★★★
 
-// 错误码映射
 const ERROR_MAP = {
   "T001": "验证通过",
-  "F003": "参数解析错误",
-  "F005": "场景ID不存在",
-  "F017": "Token被修改",
-  "F018": "重复使用",
-  "F019": "验证超时",
-  "F020": "票据不匹配",
-  "F021": "SceneId不一致"
+  "F003": "CaptchaVerifyParam解析错误",
+  "F005": "场景ID（SceneId）不存在",
+  "F017": "VerifyToken内容被修改",
+  "F018": "验签数据重复使用",
+  "F019": "验签超出时间限制（有效期90秒）或未发起验证就验签",
+  "F020": "验签票据与场景ID或用户不匹配",
+  "F021": "验证的SceneId和验签的SceneId不一致"
 };
 
-function responseJSON(code, msg, data = null, status = 200) {
-  return new Response(JSON.stringify({ code, msg, data }), {
-    status: status,
-    headers: {
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    // 通用 CORS 头
+    const responseHeaders = {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "*"
-    },
-  });
-}
+    };
 
-export default {
-  // 忽略后面的参数，因为我们已经知道 env 没传进来
-  async fetch(request) {
-    const url = new URL(request.url);
-
-    // 1. CORS 预检
+    // CORS 预检
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-          headers: {
-              "Access-Control-Allow-Origin": "*",
-              "Access-Control-Allow-Methods": "GET, OPTIONS",
-              "Access-Control-Allow-Headers": "*"
-          }
-      });
+      return new Response(null, { headers: responseHeaders });
     }
 
-    // 2. 核心业务接口
-    if (url.pathname === "/api/captcha" && request.method === "GET") {
-      
-      // --- A. 鉴权 ---
+    // ============================================================
+    // 接口 1: /api/captcha (对外入口)
+    // 功能: 发起回环请求，获取 ESA WAF 的验证结果
+    // ============================================================
+    if (pathname === "/api/captcha") {
       const inputSecret = url.searchParams.get("secret");
-      
+      const verifyParam = url.searchParams.get("captcha_verify_param");
+
+      // 1. 基础鉴权
       if (inputSecret !== SERVER_SECRET) {
-        // 返回 403 并提示正确的用法
-        return responseJSON(403, "鉴权失败: Secret 错误或丢失", {
-             tip: "请确保请求 URL 包含 ?secret=secret"
-        });
+        return new Response(JSON.stringify({ code: 403, msg: "鉴权失败: 密钥错误" }), { status: 403, headers: responseHeaders });
       }
 
-      // --- B. 检查 Header ---
-      const verifyCode = request.headers.get("x-captcha-verify-code");
-
-      if (!verifyCode) {
-        return responseJSON(500, "配置错误: ESA WAF 未注入 Header", {
-             tip: "请检查 ESA 控制台 WAF 规则配置"
-        });
+      // 2. 参数检查
+      if (!verifyParam) {
+        return new Response(JSON.stringify({ code: 400, msg: "参数丢失: 缺少 captcha_verify_param" }), { status: 400, headers: responseHeaders });
       }
 
-      // --- C. 返回结果 ---
-      if (verifyCode === "T001") {
-        return responseJSON(0, "验证通过", {
-          req_id: crypto.randomUUID(),
-          verify_code: "T001"
+      try {
+        // 3. 构造回环请求 (请求本机 /api/verify 触发 WAF)
+        const targetUrl = `https://${ESA_DOMAIN}/api/verify?secret=${inputSecret}&captcha_verify_param=${encodeURIComponent(verifyParam)}`;
+        
+        const verifyResponse = await fetch(targetUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'ESA-Internal-Loopback'
+          }
         });
-      } else {
-        const cnMsg = ERROR_MAP[verifyCode] || `未知错误: ${verifyCode}`;
-        return responseJSON(400, cnMsg, {
-          verify_code: verifyCode
-        });
+
+        // 4. 获取 WAF 注入的结果头
+        const verifyCode = verifyResponse.headers.get("x-captcha-verify-code");
+        const msg = ERROR_MAP[verifyCode] || `未知错误或WAF未生效: ${verifyCode}`;
+
+        if (verifyCode === "T001") {
+          return new Response(JSON.stringify({
+            code: 0,
+            msg: msg,
+            data: {
+              req_id: crypto.randomUUID(),
+              verify_code: "T001"
+            }
+          }), { status: 200, headers: responseHeaders });
+        } else {
+          return new Response(JSON.stringify({
+            code: 400,
+            msg: msg,
+            data: { verify_code: verifyCode }
+          }), { status: 200, headers: responseHeaders });
+        }
+
+      } catch (e) {
+        return new Response(JSON.stringify({ code: 500, msg: "内部回环请求失败", data: e.message }), { status: 500, headers: responseHeaders });
       }
     }
 
-    // 404
-    return new Response("ESA Captcha Service: 404 Not Found", { status: 404 });
+    // ============================================================
+    // 接口 2: /api/verify (内部验证口)
+    // 功能: 仅用于被 ESA WAF 拦截。如果能走到这里，说明验证已通过。
+    // ============================================================
+    if (pathname === "/api/verify") {
+      const inputSecret = url.searchParams.get("secret");
+
+      // 仅校验 Secret，不再校验其他 Header
+      if (inputSecret !== SERVER_SECRET) {
+        return new Response(JSON.stringify({ code: 403, msg: "Forbidden" }), { status: 403, headers: responseHeaders });
+      }
+
+      return new Response(JSON.stringify({ code: 0, msg: "ESA Check Passed" }), { status: 200, headers: responseHeaders });
+    }
+
+    return new Response(JSON.stringify({ code: 404, msg: "Not Found" }), { status: 404, headers: responseHeaders });
   }
 };
