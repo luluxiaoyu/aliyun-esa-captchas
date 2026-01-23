@@ -25,7 +25,7 @@ const ERROR_MAP = {
 };
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, ctx, env) {
     const url = new URL(request.url);
 
     // CORS 预检
