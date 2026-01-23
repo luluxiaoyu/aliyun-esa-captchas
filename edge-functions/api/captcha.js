@@ -1,21 +1,8 @@
 /**
- * EdgeOne Functions - 验证码验签微服务 (生产安全版)
- * * 安全机制:
- * 1. Query 参数鉴权: ?secret=xxx (匹配 SERVER_SECRET)
- * 2. Header 来源鉴权: x-esa-secret (匹配 ESA_SECRET)
- * 3. WAF 结果校验: x-captcha-verify-code (WAF 注入结果)
+ * EdgeOne Functions - 调试专用版
+ * 功能: 遇到错误时，强制输出所有 Request Headers
  */
 
-// 错误码映射
-const ERROR_MAP = {
-  "T001": "验证通过",
-  "F003": "CaptchaVerifyParam解析错误",
-  "F005": "场景ID不存在",
-  "F019": "验证超时",
-  "F020": "票据不匹配"
-};
-
-// 辅助函数：统一 JSON 响应
 function responseJSON(code, msg, data = null, status = 200) {
   return new Response(JSON.stringify({ code, msg, data }), {
     status: status,
@@ -31,56 +18,57 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
-  // ==========================================
-  // 1. 环境配置检查
-  // ==========================================
+  // 1. 收集所有请求头 (核心调试逻辑)
+  const allHeaders = {};
+  // 使用 forEach 遍历 Headers 对象
+  request.headers.forEach((value, key) => {
+    allHeaders[key] = value;
+  });
+
+  // 2. 基础鉴权 (Secret)
   const SERVER_SECRET = env.SERVER_SECRET;
-  const ESA_SECRET = env.ESA_SECRET; 
+  const ESA_SECRET = env.ESA_SECRET;
 
-  if (!SERVER_SECRET || !ESA_SECRET) {
-    return responseJSON(500, "服务配置错误: 环境变量丢失 (SERVER_SECRET 或 ESA_SECRET)");
+  if (!SERVER_SECRET) return responseJSON(500, "ENV SERVER_SECRET 未配置");
+  
+  // A. Query Secret 检查
+  if (url.searchParams.get("secret") !== SERVER_SECRET) {
+    return responseJSON(403, "Query Secret 错误");
   }
 
-  // ==========================================
-  // 2. 仅处理 GET 请求
-  // ==========================================
-  if (request.method === "GET") {
-    
-    // --- A. Query 参数鉴权 ---
-    const inputSecret = url.searchParams.get("secret");
-    if (inputSecret !== SERVER_SECRET) {
-      return responseJSON(403, "鉴权失败: URL Secret 错误");
-    }
-
-    // --- B. Header 来源鉴权 ---
-    // 用于确保请求包含特定的 Header 密钥 (防止绕过)
-    const headerSecret = request.headers.get("x-esa-secret");
-    if (headerSecret !== ESA_SECRET) {
-      return responseJSON(403, "鉴权失败: 非法来源 (Header Secret 错误或丢失)");
-    }
-
-    // --- C. 检查 WAF 验证结果 ---
-    // 必须存在 x-captcha-verify-code 头，否则视为未经过 WAF 验证
-    const verifyCode = request.headers.get("x-captcha-verify-code");
-
-    if (!verifyCode) {
-      return responseJSON(500, "安全警告: 未检测到 WAF 验证结果", {
-           tip: "请求未经过验证码规则或规则配置错误"
-      });
-    }
-
-    // --- D. 业务结果返回 ---
-    if (verifyCode === "T001") {
-      return responseJSON(0, "验证通过", {
-        verify_code: "T001"
-      });
-    } else {
-      // 返回具体的错误原因
-      const cnMsg = ERROR_MAP[verifyCode] || `未知错误: ${verifyCode}`;
-      return responseJSON(400, cnMsg, { verify_code: verifyCode });
-    }
+  // B. Header Secret 检查 (如果有配置 ESA_SECRET，则检查)
+  // 调试期间，如果你担心是这个拦截了，可以暂时注释掉下面这几行
+  if (ESA_SECRET) {
+     const headerSecret = request.headers.get("x-esa-secret");
+     if (headerSecret !== ESA_SECRET) {
+        return responseJSON(403, "Header Secret (x-esa-secret) 错误或丢失", {
+            received_headers: allHeaders // 鉴权失败也把头打印出来看看
+        });
+     }
   }
 
-  // 其他 Method
-  return new Response("Method Not Allowed", { status: 405 });
+  // 3. 检查 WAF 验证结果
+  const verifyCode = request.headers.get("x-captcha-verify-code");
+
+  if (!verifyCode) {
+    // ★★★ 调试重点：返回 500 的同时，把收到的所有头都吐出来 ★★★
+    return responseJSON(500, "安全警告: 未检测到 WAF 验证结果", {
+         tip: "请仔细检查下方 received_headers 中是否存在验证字段，或字段名是否有差异",
+         // 打印所有头，让你看个清楚
+         received_headers: allHeaders, 
+         // 打印当前请求的方法和URL，确认没有被重定向
+         request_info: {
+             method: request.method,
+             url: request.url
+         }
+    });
+  }
+
+  // 4. 正常逻辑
+  return responseJSON(0, "验证通过", {
+    req_id: crypto.randomUUID(),
+    verify_code: verifyCode,
+    // 调试模式下，成功了也顺便看看头（可选）
+    // debug_headers: allHeaders 
+  });
 }
