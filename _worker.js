@@ -1,10 +1,10 @@
 /**
- * ESA Edge Routine - 验证码验签 (单文件/硬编码版)
+ * ESA Edge Routine - 验证码验签
  */
 
 // ★★★★★ 配置区域 ★★★★★
-const SERVER_SECRET = "your_password_here";  // 你的接口密钥
-const ESA_DOMAIN = "test.example.com";       // 你的域名 (不要带 https://)
+const SERVER_SECRET = "your_password_here";  // 接口密钥
+const ESA_DOMAIN = "test.example.com";       // 域名
 // ★★★★★★★★★★★★★★★★★★★★
 
 const ERROR_MAP = {
