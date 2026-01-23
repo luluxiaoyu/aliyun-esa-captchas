@@ -48,7 +48,7 @@ export default {
 
       if (inputSecret !== SECRET) {
         return responseJSON(403, "接口鉴权失败: Secret 错误或丢失", {
-             tip: Object.keys(env).join(',')
+             tip: Object.keys(env)
         });
       }
 
